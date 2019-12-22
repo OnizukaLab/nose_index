@@ -225,7 +225,7 @@ module NoSE
             indexes.each do |index|
               values = index_values[index]
               next if values.empty?
-              value = values[i % values.length][condition.field.id]
+              value = values[i % values.length][condition.field.id.split(".").last]
               break unless value.nil?
             end
 

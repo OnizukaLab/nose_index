@@ -174,7 +174,7 @@ module NoSE
         def initial_results(conditions)
           [Hash[conditions.map do |field_id, condition|
             fail if condition.value.nil?
-            [field_id, condition.value]
+            [field_id.split(".").last, condition.value]
           end]]
         end
 
@@ -182,13 +182,13 @@ module NoSE
         def result_conditions(conditions, results)
           results.map do |result|
             result_condition = @eq_fields.map do |field|
-              Condition.new field, :'=', result[field.id]
+              Condition.new field, :'=', result[field.id.split(".").last]
             end
 
             unless @range_field.nil?
               operator = conditions.each_value.find(&:range?).operator
               result_condition << Condition.new(@range_field, operator,
-                                                result[@range_field.id])
+                                                result[@range_field.id.split(".").last])
             end
 
             result_condition
@@ -257,11 +257,11 @@ module NoSE
         # @return [Boolean]
         def include_row?(row, eq_conditions, range)
           select = eq_conditions.all? do |condition|
-            row[condition.field.id] == condition.value
+            row[condition.field.id.split(".").last] == condition.value
           end
 
           if range
-            range_check = row[range.field.id].method(range.operator)
+            range_check = row[range.field.id.split(".").last].method(range.operator)
             select &&= range_check.call range.value
           end
 
@@ -281,7 +281,7 @@ module NoSE
         def process(_conditions, results, query_conditions)
           results.sort_by! do |row|
             @step.sort_fields.map do |field|
-              row[field.id]
+              row[field.id.split(".").last]
             end
           end
         end
@@ -384,8 +384,8 @@ module NoSE
 
         @steps.each do |step|
           if step.is_a?(Backend::IndexLookupStatementStep)
-            field_ids = step.index.all_fields.map(&:id)
-            field_conds = conditions.select { |key| field_ids.include? key }
+            field_ids = step.index.all_fields.map(&:id).map{|id| id.split(".").last}
+            field_conds = conditions.select { |key, value| field_ids.include? key.split(".").last }
           else
             field_conds = conditions
           end
@@ -447,7 +447,7 @@ module NoSE
         # Add fields from the original statement
         update_conditions.each_value do |condition|
           next unless include_fields.include? condition.field
-          settings.merge! condition.field.id => condition.value
+          settings.merge! condition.field.id.split(".").last => condition.value
         end
 
         if support.empty?
@@ -475,7 +475,7 @@ module NoSE
         if !@insert_step.nil? && @delete_step.nil?
           # Populate the data to insert for Insert statements
           settings = Hash[update_settings.map do |setting|
-            [setting.field.id, setting.value]
+            [setting.field.id.split(".").last, setting.value]
           end]
         else
           # Get values for updates and deletes
@@ -496,7 +496,7 @@ module NoSE
         # resolving any settings which specify foreign keys
         settings = Hash[settings.map do |k, v|
           new_condition = v.resolve_foreign_key
-          [new_condition.field.id, new_condition]
+          [new_condition.field.id.split(".").last, new_condition]
         end]
         setting_values = Hash[settings.map { |k, v| [k, v.value] }]
 

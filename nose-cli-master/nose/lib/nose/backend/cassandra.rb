@@ -110,14 +110,14 @@ module NoSE
 
       # Sample a number of values from the given index
       def index_sample(index,has_index_hash, count)
-        field_list = index.all_fields.map { |f| "\"#{f.id}\"" }
+        field_list = index.all_fields.map { |f| "\"#{f.id.split('.').last}\"" }
         if index.is_secondary_index
           has_index = has_index_hash.select{|has_in| has_in.index_key == index.key and has_in.index_value}[0]
           query = "SELECT #{field_list.join ', '} " \
                 "FROM \"#{has_index.parent_table_id}\" LIMIT #{count}"
         else
           query = "SELECT #{field_list.join ', '} " \
-                "FROM \"#{index.key}\" LIMIT #{count}"
+                "FROM \"pdr2\".\"#{index.key}\" LIMIT #{count}" # NOTE: hard-coded
         end
         rows = client.execute(query).rows
 
@@ -239,13 +239,12 @@ module NoSE
         # Insert each row into the index
         def process(results)
           results.each do |result|
-            fields = @index.all_fields.select { |field| result.key? field.id }
+            fields = @index.all_fields.select { |field| result.key? field.id.split('.').last }
 
-            
-            fields.sort_by!{|field| @prepared.cql.index(field.id)}
+            fields.sort_by!{|field| @prepared.cql.index(field.id.split('.').last)}
 
             values = fields.map do |field|
-              value = result[field.id]
+              value = result[field.id.split('.').last]
 
               # If this is an ID, generate or construct a UUID object
               if field.is_a?(Fields::IDField)
@@ -313,7 +312,7 @@ module NoSE
         # Get the values used in the WHERE clause for a CQL DELETE
         def delete_values(result)
           @index_keys.map do |key|
-            cur_field = @index.all_fields.find { |field| field.id == key.id }
+            cur_field = @index.all_fields.find { |field| field.id.split('.').last == key.id }
 
             if cur_field.is_a?(Fields::IDField)
               Cassandra::Uuid.new(result[key.id].to_i)
@@ -333,7 +332,9 @@ module NoSE
           @logger = Logging.logger['nose::backend::cassandra::indexlookupstep']
 
           # TODO: Check if we can apply the next filter via ALLOW FILTERING
-          @prepared = client.prepare select_cql(select, conditions)
+          cql = select_cql(select, conditions)
+          # puts cql # extract query
+          @prepared = client.prepare cql
         end
         # rubocop:enable Metrics/ParameterLists
 
@@ -354,7 +355,7 @@ module NoSE
         # yusuke benchmarkの中で実際にselect句を発行している箇所
         def select_cql(select, conditions)
           select = expand_selected_fields select
-          cql = "SELECT #{select.map { |f| "\"#{f.id}\"" }.join ', '} FROM " \
+          cql = "SELECT #{select.map { |f| "\"#{f.id.split('.').last}\"" }.join ', '} FROM " \
                 "\"#{@step.index.key}\" WHERE #{cql_where_clause conditions}"
           cql += cql_order_by
 
@@ -368,11 +369,11 @@ module NoSE
         # @return [String]
         def cql_where_clause(conditions)
           where = @eq_fields.map do |field|
-            "\"#{field.id}\" = ?"
+            "\"#{field.id.split('.').last}\" = ?"
           end.join ' AND '
           unless @range_field.nil?
             condition = conditions.each_value.find(&:range?)
-            where << " AND \"#{condition.field.id}\" #{condition.operator} ?"
+            where << " AND \"#{condition.field.id.split('.').last}\" #{condition.operator} ?"
           end
 
           where
@@ -434,7 +435,7 @@ module NoSE
         def lookup_values(condition_set,query_conditions)
           condition_set.map do |condition|
             value = condition.value ||
-              query_conditions[condition.field.id].value
+              query_conditions[condition.field.id.split('.').last].value
             fail if value.nil?
 
             if condition.field.is_a?(Fields::IDField)
